@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Chart Entry Suggestion (Paste + Gemini)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .dropzone{border:2px dashed rgba(148,163,184,.6)}
+    .dropzone.drag{border-color: rgba(59,130,246,1); background: rgba(59,130,246,.05)}
+    .zone-focus{outline:2px solid rgb(59,130,246)}
+    .thumb{object-fit:cover}
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900">
+  <div class="max-w-6xl mx-auto p-6 space-y-6">
+    <!-- Header -->
+    <header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-bold tracking-tight">AI Chart Entry Suggestion</h1>
+        <p class="text-slate-600">Click a timeframe and <strong>paste</strong> your snip (Ctrl/Cmd+V). Set Risk:Reward and run the <strong>Gemini</strong> model.</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <label class="inline-flex items-center gap-2 text-sm"><input id="demoToggle" type="checkbox" class="accent-blue-600"> Demo mode</label>
+        <button id="resetBtn" class="px-3 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-sm">Reset</button>
+      </div>
+    </header>
+
+    <!-- Inputs Row -->
+    <section class="grid md:grid-cols-2 gap-6">
+      <div class="bg-white rounded-2xl shadow p-5 space-y-4">
+        <h2 class="font-semibold text-lg">Trade Parameters</h2>
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium">Ticker <span class="text-slate-400">(e.g., TSLA)</span></label>
+            <input id="ticker" class="mt-1 w-full rounded-xl border-slate-300 focus:ring-2 focus:ring-blue-500" placeholder="TSLA" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium">Risk:Reward</label>
+            <input id="rr" class="mt-1 w-full rounded-xl border-slate-300 focus:ring-2 focus:ring-blue-500" placeholder="1:2 or 0.5:1.5" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium">Current Price <span class="text-slate-400">(optional)</span></label>
+            <input id="currentPrice" type="number" step="0.01" class="mt-1 w-full rounded-xl border-slate-300 focus:ring-2 focus:ring-blue-500" placeholder="e.g., 245.10" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium">Entry Bias <span class="text-slate-400">(optional)</span></label>
+            <select id="bias" class="mt-1 w-full rounded-xl border-slate-300 focus:ring-2 focus:ring-blue-500">
+              <option value="">Let model decide</option>
+              <option value="long">Long</option>
+              <option value="short">Short</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Notes <span class="text-slate-400">(optional)</span></label>
+          <textarea id="notes" rows="3" class="mt-1 w-full rounded-xl border-slate-300 focus:ring-2 focus:ring-blue-500" placeholder="Key levels, news, catalysts, etc."></textarea>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow p-5 space-y-4">
+        <h2 class="font-semibold text-lg">Gemini API Settings</h2>
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium">API Key <span class="text-slate-400">(stored locally)</span></label>
+            <input id="apiKey" type="password" class="mt-1 w-full rounded-xl border-slate-300 focus:ring-2 focus:ring-blue-500" placeholder="AIza..." />
+          </div>
+          <div>
+            <label class="block text-sm font-medium">Model</label>
+            <input id="model" class="mt-1 w-full rounded-xl border-slate-300 focus:ring-2 focus:ring-blue-500" value="gemini-2.5-pro" />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="block text-sm font-medium">Extra Params (JSON) <span class="text-slate-400">optional</span></label>
+            <textarea id="extra" rows="3" class="mt-1 w-full rounded-xl border-slate-300 focus:ring-2 focus:ring-blue-500" placeholder='{"temperature":0.1}'></textarea>
+          </div>
+        </div>
+        <p class="text-xs text-slate-500">Uses <code>POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key=API_KEY</code> with images as base64 <code>inline_data</code>.</p>
+      </div>
+    </section>
+
+    <!-- Paste / Upload Zones -->
+    <section class="bg-white rounded-2xl shadow p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-semibold text-lg">Screenshots by Timeframe</h2>
+        <p class="text-sm text-slate-500">Click a box then paste (Ctrl/Cmd+V). Drag & drop or file-pick also work.</p>
+      </div>
+      <div id="zones" class="grid lg:grid-cols-3 sm:grid-cols-2 grid-cols-1 gap-4"></div>
+    </section>
+
+    <!-- Request Preview & Actions -->
+    <section class="grid lg:grid-cols-2 gap-6">
+      <div class="bg-white rounded-2xl shadow p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="font-semibold text-lg">Request Preview</h2>
+          <div class="flex gap-2">
+            <button id="copyReq" class="px-3 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-sm">Copy JSON</button>
+            <button id="downloadReq" class="px-3 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-sm">Download JSON</button>
+          </div>
+        </div>
+        <pre id="reqPreview" class="text-xs bg-slate-900 text-slate-100 rounded-xl p-3 overflow-auto max-h-72"></pre>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow p-5 space-y-4">
+        <h2 class="font-semibold text-lg">Run Analysis</h2>
+        <div class="flex gap-3">
+          <button id="analyzeBtn" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white">Analyze with Gemini</button>
+          <button id="clearOutBtn" class="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300">Clear Output</button>
+        </div>
+        <div id="status" class="text-sm text-slate-500"></div>
+        <div>
+          <label class="block text-sm font-medium">Model Output</label>
+          <textarea id="output" rows="10" class="mt-1 w-full rounded-xl border-slate-300 focus:ring-2 focus:ring-blue-500" placeholder="Model response will appear here..."></textarea>
+        </div>
+      </div>
+    </section>
+
+    <!-- Footer / Dev Notes -->
+    <footer class="text-xs text-slate-500 pt-2 pb-8">
+      <p>
+        <strong>Demo mode</strong> computes a local example (needs Current Price + Risk:Reward). Otherwise, the app calls Gemini from the browser. For production, proxy through your own backend to protect keys and handle CORS.
+      </p>
+    </footer>
+  </div>
+
+  <script>
+    // -------- Utilities --------
+    const TF_LIST = [
+      { key: '5m',  label: '5 Minutes' },
+      { key: '15m', label: '15 Minutes' },
+      { key: '4h',  label: '4 Hours' },
+      { key: '1d',  label: '1 Day' },
+      { key: '1w',  label: '1 Week' },
+      { key: '1mo', label: '1 Month' },
+    ];
+
+    const $ = (id) => document.getElementById(id);
+    const state = { images: {} };
+
+    function uuid(){
+      return crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c=>{
+        const r = Math.random()*16|0, v = c==='x'?r:(r&0x3|0x8); return v.toString(16)
+      });
+    }
+
+    function parseRR(val){
+      if(!val) return null;
+      const parts = String(val).replace(/\s/g,'').split(':');
+      if(parts.length !== 2) return null;
+      const risk = parseFloat(parts[0]);
+      const reward = parseFloat(parts[1]);
+      if(!isFinite(risk) || !isFinite(reward) || risk<=0 || reward<=0) return null;
+      return { risk, reward };
+    }
+
+    function bytesFromDataUrl(dataUrl){
+      const base64 = dataUrl.split(',')[1];
+      return atob(base64).length;
+    }
+
+    async function blobToDataUrl(blob, maxW=1600, maxH=1600, quality=0.9){
+      const img = new Image();
+      img.src = URL.createObjectURL(blob);
+      await img.decode();
+      const ratio = Math.min(maxW/img.naturalWidth, maxH/img.naturalHeight, 1);
+      const w = Math.round(img.naturalWidth*ratio);
+      const h = Math.round(img.naturalHeight*ratio);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const mime = (blob.type && blob.type.includes('png')) ? 'image/png' : 'image/jpeg';
+      const dataUrl = canvas.toDataURL(mime, quality);
+      URL.revokeObjectURL(img.src);
+      return dataUrl;
+    }
+
+    function buildPayload(){
+      const rr = parseRR($("rr").value);
+      const payload = {
+        request_id: uuid(),
+        ticker: $("ticker").value.trim() || null,
+        risk_reward: rr,
+        bias: $("bias").value || null,
+        current_price: $("currentPrice").value ? Number($("currentPrice").value) : null,
+        notes: $("notes").value || null,
+        timeframes: {}, // { key: {mime, sizeBytes, dataUrl} }
+        model: $("model").value || 'gemini-2.5-pro',
+        extra: (()=>{ try{ return $("extra").value? JSON.parse($("extra").value): null }catch{ return { _extra_parse_error: true, raw: $("extra").value } } })(),
+        created_at: new Date().toISOString()
+      };
+      for(const tf of TF_LIST){
+        const slot = state.images[tf.key];
+        if(slot){
+          payload.timeframes[tf.key] = {
+            mime: slot.mime,
+            sizeBytes: bytesFromDataUrl(slot.dataUrl),
+            dataUrl: slot.dataUrl
+          };
+        }
+      }
+      return payload;
+    }
+
+    function refreshPreview(){
+      const payload = buildPayload();
+      $("reqPreview").textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function makeZone(tf){
+      const wrap = document.createElement('div');
+      wrap.className = 'p-4 rounded-2xl border dropzone bg-slate-50';
+      wrap.dataset.timeframe = tf.key;
+      wrap.tabIndex = 0;
+      wrap.innerHTML = `
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <div class="text-sm uppercase tracking-wide text-slate-500">${tf.key}</div>
+            <div class="font-semibold -mt-1">${tf.label}</div>
+          </div>
+          <input type="file" accept="image/*" class="hidden" />
+          <button class="choose px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-sm">Choose</button>
+        </div>
+        <div class="flex gap-3 items-center">
+          <div class="w-24 h-24 rounded-xl bg-white border flex items-center justify-center overflow-hidden">
+            <img class="thumb w-full h-full hidden" alt="preview" />
+            <div class="placeholder text-slate-400 text-xs text-center p-2">Click & paste</div>
+          </div>
+          <div class="text-xs text-slate-600 grow">
+            <p class="mb-1">Click then paste (Ctrl/Cmd+V). Drag & drop or <em>Choose</em> also work.</p>
+            <p class="truncate filemeta"></p>
+            <div class="flex gap-2 mt-2">
+              <button class="clear px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200">Clear</button>
+              <button class="view px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 hidden">View</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const input = wrap.querySelector('input[type=file]');
+      const btnChoose = wrap.querySelector('.choose');
+      const btnClear = wrap.querySelector('.clear');
+      const btnView = wrap.querySelector('.view');
+      const img = wrap.querySelector('.thumb');
+      const placeholder = wrap.querySelector('.placeholder');
+      const meta = wrap.querySelector('.filemeta');
+
+      function setDrag(on){ wrap.classList.toggle('drag', !!on) }
+      function setFocus(on){ wrap.classList.toggle('zone-focus', !!on) }
+
+      async function setBlob(blob){
+        if(!blob) return;
+        if(!(blob.type||'').startsWith('image/')){ alert('Please paste/select an image.'); return; }
+        const dataUrl = await blobToDataUrl(blob);
+        state.images[tf.key] = { blob, dataUrl, mime: blob.type || 'image/png' };
+        img.src = dataUrl; img.classList.remove('hidden');
+        placeholder.classList.add('hidden');
+        meta.textContent = `${blob.type.replace('image/','')} • ${(blob.size/1024).toFixed(1)} KB`;
+        btnView.classList.remove('hidden');
+        refreshPreview();
+      }
+
+      btnChoose.addEventListener('click', ()=> input.click());
+      input.addEventListener('change', (e)=> setBlob(e.target.files[0]));
+
+      ['dragenter','dragover'].forEach(ev=> wrap.addEventListener(ev, (e)=>{ e.preventDefault(); setDrag(true) }));
+      ;['dragleave','drop'].forEach(ev=> wrap.addEventListener(ev, (e)=>{ e.preventDefault(); if(ev==='drop'){ const f=e.dataTransfer.files?.[0]; setBlob(f) } setDrag(false) }));
+
+      wrap.addEventListener('focus', ()=> setFocus(true));
+      wrap.addEventListener('blur', ()=> setFocus(false));
+      wrap.addEventListener('click', ()=> wrap.focus());
+
+      wrap.addEventListener('paste', async (e)=>{
+        const items = e.clipboardData?.items || [];
+        for(const it of items){
+          if(it.type && it.type.startsWith('image/')){ const blob = it.getAsFile(); await setBlob(blob); break; }
+        }
+      });
+
+      btnClear.addEventListener('click', ()=>{
+        delete state.images[tf.key];
+        img.src = ''; img.classList.add('hidden');
+        placeholder.classList.remove('hidden');
+        meta.textContent = '';
+        btnView.classList.add('hidden');
+        input.value = '';
+        refreshPreview();
+      });
+
+      btnView.addEventListener('click', ()=>{
+        const slot = state.images[tf.key];
+        if(slot){ const w = window.open(); w.document.write(`<img src="${slot.dataUrl}" style="max-width:100%">`); }
+      });
+
+      return wrap;
+    }
+
+    // -------- Demo Heuristic --------
+    function demoSuggest(payload){
+      const count = Object.keys(payload.timeframes||{}).length;
+      const bias = payload.bias || (count >= 4 ? 'long' : 'short');
+      const price = Number(payload.current_price||0);
+      const rr = payload.risk_reward;
+
+      if(!price || !rr){
+        return { rationale: 'Demo needs Current Price and Risk:Reward.', recommendation: 'insufficient' };
+      }
+
+      const riskPct = 0.006 * rr.risk; // demo only
+      const dir = bias;
+      const stop = dir==='long' ? price*(1 - riskPct) : price*(1 + riskPct);
+      const target = dir==='long' ? price*(1 + riskPct* (rr.reward/rr.risk)) : price*(1 - riskPct* (rr.reward/rr.risk));
+      return {
+        recommendation: dir,
+        entry: price,
+        stop: Number(stop.toFixed(4)),
+        target: Number(target.toFixed(4)),
+        r_multiple: rr.reward/rr.risk,
+        rationale: `Demo heuristic with ${count} timeframe(s). Bias: ${bias}. Risk pct: ${(riskPct*100).toFixed(2)}%.`
+      };
+    }
+
+    // -------- Gemini Networking --------
+    async function callGemini(apiKey, model, payload){
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const body = {
+        contents: [{ role: 'user', parts: buildGeminiContentParts(payload) }],
+        safetySettings: [ { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' } ],
+        generationConfig: payload.extra || {}
+      };
+      // Enhanced error handling
+      try {
+        const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        if(!res.ok){ throw new Error(`HTTP ${res.status}: ${await res.text()}`); }
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.map(p=>p.text).join('\n') || JSON.stringify(data);
+        return text;
+      } catch (err) {
+        if (err instanceof TypeError) {
+          throw new Error("A network error occurred. This is likely a CORS issue. Please ensure you are running this page from a local web server (http://localhost) and not opening the file directly (file://).");
+        }
+        throw err; // Re-throw other errors
+      }
+    }
+
+    function buildGeminiContentParts(payload){
+      const parts = [];
+      parts.push({ text: `You are a trading assistant. Analyze multi-timeframe chart screenshots and the trader's Risk:Reward to suggest a single ENTRY with STOP and TARGET. Provide concise JSON: {direction: \"long|short\", entry, stop, target, r_multiple, rationale}. Prefer confluence across timeframes and respect the user's bias if provided.` });
+      const ctxLines = [
+        `Ticker: ${payload.ticker||'unknown'}`,
+        `Risk:Reward: ${payload.risk_reward?payload.risk_reward.risk+':'+payload.risk_reward.reward:'n/a'}`,
+        `Bias: ${payload.bias||'auto'}`,
+        `Current Price: ${payload.current_price??'n/a'}`,
+        `Notes: ${payload.notes||''}`
+      ].join('\n');
+      parts.push({ text: ctxLines });
+      for(const [tf, obj] of Object.entries(payload.timeframes||{})){
+        parts.push({ text: `Timeframe: ${tf}` });
+        parts.push({ inline_data: { mime_type: obj.mime||'image/png', data: obj.dataUrl.split(',')[1] } });
+      }
+      return parts;
+    }
+
+    // -------- Wire up UI --------
+    function init(){
+      const zones = $("zones");
+      TF_LIST.forEach(tf=> zones.appendChild(makeZone(tf)));
+
+      const savedKey = localStorage.getItem('ai_api_key');
+      if(savedKey) $("apiKey").value = savedKey;
+      $("apiKey").addEventListener('change', ()=> localStorage.setItem('ai_api_key', $("apiKey").value));
+
+      ['ticker','rr','bias','currentPrice','notes','apiKey','model','extra'].forEach(id=> $(id).addEventListener('input', refreshPreview));
+
+      $("copyReq").addEventListener('click', async()=>{
+        await navigator.clipboard.writeText($("reqPreview").textContent);
+        $("status").textContent = 'Copied request JSON to clipboard.';
+      });
+
+      $("downloadReq").addEventListener('click', ()=>{
+        const blob = new Blob([$("reqPreview").textContent], {type: 'application/json'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `ai-chart-request-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+
+      $("clearOutBtn").addEventListener('click', ()=> $("output").value='');
+
+      $("resetBtn").addEventListener('click', ()=>{
+        ['ticker','rr','currentPrice','notes','model','extra'].forEach(id=> $(id).value='');
+        $("bias").value='';
+        state.images = {};
+        document.querySelectorAll('.dropzone .clear').forEach(btn=> btn.click());
+        refreshPreview();
+        $("output").value='';
+        $("status").textContent = 'Reset complete.';
+      });
+
+      $("analyzeBtn").addEventListener('click', async()=>{
+        $("status").textContent = '';
+        const payload = buildPayload();
+        refreshPreview();
+        const demo = $("demoToggle").checked;
+        if(demo){
+          const result = demoSuggest(payload);
+          $("output").value = JSON.stringify(result, null, 2);
+          $("status").textContent = 'Demo result generated locally.';
+          return;
+        }
+        const apiKey = $("apiKey").value.trim();
+        const model = $("model").value.trim() || 'gemini-2.5-pro';
+        if(!apiKey){ $("status").textContent = 'Enter your Gemini API key.'; return; }
+        try{
+          $("status").textContent = 'Calling Gemini...';
+          const respText = await callGemini(apiKey, model, payload);
+          $("output").value = respText;
+          $("status").textContent = 'Done.';
+        }catch(err){
+          $("output").value = `Error: ${err.message}`;
+          $("status").textContent = 'Request failed.';
+        }
+      });
+
+      refreshPreview();
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+  </script>
+</body>
+</html>
