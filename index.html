@@ -211,6 +211,7 @@
       wrap.className = 'p-4 rounded-2xl border dropzone bg-slate-50';
       wrap.dataset.timeframe = tf.key;
       wrap.tabIndex = 0;
+
       wrap.innerHTML = `
         <div class="flex items-center justify-between mb-3">
           <div>
@@ -236,49 +237,74 @@
         </div>
       `;
 
-      const input = wrap.querySelector('input[type=file]');
-      const btnChoose = wrap.querySelector('.choose');
-      const btnClear = wrap.querySelector('.clear');
-      const btnView = wrap.querySelector('.view');
-      const img = wrap.querySelector('.thumb');
+      const input       = wrap.querySelector('input[type=file]');
+      const btnChoose   = wrap.querySelector('.choose');
+      const btnClear    = wrap.querySelector('.clear');
+      const btnView     = wrap.querySelector('.view');
+      const img         = wrap.querySelector('.thumb');
       const placeholder = wrap.querySelector('.placeholder');
-      const meta = wrap.querySelector('.filemeta');
+      const meta        = wrap.querySelector('.filemeta');
 
-      function setDrag(on){ wrap.classList.toggle('drag', !!on) }
-      function setFocus(on){ wrap.classList.toggle('zone-focus', !!on) }
+      function setDrag(on){ wrap.classList.toggle('drag', !!on); }
+      function setFocus(on){ wrap.classList.toggle('zone-focus', !!on); }
 
       async function setBlob(blob){
         if(!blob) return;
-        if(!(blob.type||'').startsWith('image/')){ alert('Please paste/select an image.'); return; }
+        if(!(blob.type || '').startsWith('image/')){
+          alert('Please paste/select an image.');
+          return;
+        }
         const dataUrl = await blobToDataUrl(blob);
         state.images[tf.key] = { blob, dataUrl, mime: blob.type || 'image/png' };
-        img.src = dataUrl; img.classList.remove('hidden');
+
+        img.src = dataUrl;
+        img.classList.remove('hidden');
         placeholder.classList.add('hidden');
-        meta.textContent = `${blob.type.replace('image/','')} • ${(blob.size/1024).toFixed(1)} KB`;
+        meta.textContent = `${(blob.type || 'image/png').replace('image/','')} • ${(blob.size/1024).toFixed(1)} KB`;
         btnView.classList.remove('hidden');
+
         refreshPreview();
       }
 
+      // File picker
       btnChoose.addEventListener('click', ()=> input.click());
-      input.addEventListener('change', (e)=> setBlob(e.target.files[0]));
+      input.addEventListener('change', (e)=> setBlob(e.target.files?.[0]));
 
-      ['dragenter','dragover'].forEach(ev=> wrap.addEventListener(ev, (e)=>{ e.preventDefault(); setDrag(true) }));
-      ;['dragleave','drop'].forEach(ev=> wrap.addEventListener(ev, (e)=>{ e.preventDefault(); if(ev==='drop'){ const f=e.dataTransfer.files?.[0]; setBlob(f) } setDrag(false) }));
+      // Drag & drop
+      ['dragenter','dragover'].forEach(ev =>
+        wrap.addEventListener(ev, (e)=>{ e.preventDefault(); setDrag(true); })
+      );
+      ['dragleave','drop'].forEach(ev =>
+        wrap.addEventListener(ev, (e)=>{
+          e.preventDefault();
+          if(ev === 'drop'){
+            const f = e.dataTransfer.files?.[0];
+            setBlob(f);
+          }
+          setDrag(false);
+        })
+      );
 
+      // Focus / paste
       wrap.addEventListener('focus', ()=> setFocus(true));
-      wrap.addEventListener('blur', ()=> setFocus(false));
+      wrap.addEventListener('blur',  ()=> setFocus(false));
       wrap.addEventListener('click', ()=> wrap.focus());
-
       wrap.addEventListener('paste', async (e)=>{
         const items = e.clipboardData?.items || [];
         for(const it of items){
-          if(it.type && it.type.startsWith('image/')){ const blob = it.getAsFile(); await setBlob(blob); break; }
+          if(it.type && it.type.startsWith('image/')){
+            const blob = it.getAsFile();
+            await setBlob(blob);
+            break;
+          }
         }
       });
 
+      // Clear
       btnClear.addEventListener('click', ()=>{
         delete state.images[tf.key];
-        img.src = ''; img.classList.add('hidden');
+        img.src = '';
+        img.classList.add('hidden');
         placeholder.classList.remove('hidden');
         meta.textContent = '';
         btnView.classList.add('hidden');
@@ -286,13 +312,20 @@
         refreshPreview();
       });
 
+      // View in new tab
       btnView.addEventListener('click', ()=>{
         const slot = state.images[tf.key];
-        if(slot){ const w = window.open(); w.document.write(`<img src="${slot.dataUrl}" style="max-width:100%">`); }
+        if(slot){
+          const w = window.open();
+          if(w && w.document){
+            w.document.write(`<img src="${slot.dataUrl}" style="max-width:100%">`);
+          }
+        }
       });
 
       return wrap;
     }
+
 
     // -------- Demo Heuristic --------
     function demoSuggest(payload){
